@@ -199,7 +199,9 @@ struct android_dev {
 	struct android_usb_platform_data *pdata;
 
 	bool connected;
+	bool mirrorlink;
 	bool sw_connected;
+	bool sw_mirrorlink;
 	bool suspended;
 	bool sw_suspended;
 	char pm_qos[5];
@@ -291,6 +293,7 @@ enum android_device_state {
 	USB_DISCONNECTED,
 	USB_CONNECTED,
 	USB_CONFIGURED,
+	USB_NCM,
 	USB_SUSPENDED,
 	USB_RESUMED
 };
@@ -322,6 +325,7 @@ static void android_work(struct work_struct *data)
 	char *disconnected[2] = { "USB_STATE=DISCONNECTED", NULL };
 	char *connected[2]    = { "USB_STATE=CONNECTED", NULL };
 	char *configured[2]   = { "USB_STATE=CONFIGURED", NULL };
+	char *ncm[2]          = { "USB_STATE=NCM", NULL };
 	char *suspended[2]   = { "USB_STATE=SUSPENDED", NULL };
 	char *resumed[2]   = { "USB_STATE=RESUMED", NULL };
 	char **uevent_envp = NULL;
@@ -335,6 +339,9 @@ static void android_work(struct work_struct *data)
 			pm_qos_vote = dev->suspended ? 0 : 1;
 		next_state = dev->suspended ? USB_SUSPENDED : USB_RESUMED;
 		uevent_envp = dev->suspended ? suspended : resumed;
+	} else if (dev->mirrorlink && !dev->sw_mirrorlink) {
+		uevent_envp = ncm;
+		next_state = USB_NCM;
 	} else if (cdev->config) {
 		uevent_envp = configured;
 		next_state = USB_CONFIGURED;
@@ -346,6 +353,7 @@ static void android_work(struct work_struct *data)
 		else if (!dev->connected || !strncmp(dev->pm_qos, "low", 3))
 			pm_qos_vote = 0;
 	}
+	dev->sw_mirrorlink = dev->mirrorlink;
 	dev->sw_connected = dev->connected;
 	dev->sw_suspended = dev->suspended;
 	spin_unlock_irqrestore(&cdev->lock, flags);
@@ -1006,6 +1014,44 @@ static struct android_usb_function ncm_function = {
 	.unbind_config	= ncm_function_unbind_config,
 	.attributes	= ncm_function_attributes,
 };
+
+/* MirrorLink NCM control request handling */
+
+static int mirrorlink_ctrlrequest(struct usb_composite_dev *cdev,
+					const struct usb_ctrlrequest *ctrl)
+{
+	struct android_dev *dev = cdev_to_android_dev(cdev);
+	int value = -EOPNOTSUPP;
+	u8 b_requestType = ctrl->bRequestType;
+	u8 b_request = ctrl->bRequest;
+	u16  w_length = le16_to_cpu(ctrl->wLength);
+	unsigned long flags;
+
+	if (b_requestType == (USB_DIR_OUT | USB_TYPE_VENDOR)) {
+		if (b_request == 0xF0) {
+			printk(KERN_INFO "%s: found request", __func__);
+			spin_lock_irqsave(&cdev->lock, flags);
+			dev->mirrorlink = 1;
+			schedule_work(&dev->work);
+			spin_unlock_irqrestore(&cdev->lock, flags);
+			value = 0;
+		}
+	}
+
+	/* respond with data transfer or status phase? */
+	if (value >= 0) {
+		int rc;
+		cdev->req->zero = value < w_length;
+		cdev->req->length = value;
+		rc = usb_ep_queue(cdev->gadget->ep0, cdev->req, GFP_ATOMIC);
+		if (rc < 0)
+			printk(KERN_INFO "%s: setup response queue error", __func__);
+	}
+	return value;
+}
+
+/* End of MirrorLink NCM control request handling */
+
 /* ecm transport string */
 static char ecm_transports[MAX_XPORT_STR_LEN];
 
@@ -2538,6 +2584,8 @@ static ssize_t state_show(struct device *pdev, struct device_attribute *attr,
 		state = "CONFIGURED";
 	else if (dev->connected)
 		state = "CONNECTED";
+	else if (dev->mirrorlink)
+		state = "NCM";
 	spin_unlock_irqrestore(&cdev->lock, flags);
 out:
 	return snprintf(buf, PAGE_SIZE, "%s\n", state);
@@ -2766,6 +2814,11 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 	if (value < 0)
 		value = acc_ctrlrequest(cdev, c);
 
+	/* Also handle the control request to enable CDC NCM mode
+	 * for MirrorLink.  */
+	if (value < 0)
+		value = mirrorlink_ctrlrequest(cdev, c);
+
 	if (value < 0)
 		value = composite_setup(gadget, c);
 
@@ -2797,6 +2850,8 @@ static void android_disconnect(struct usb_gadget *gadget)
 
 	spin_lock_irqsave(&cdev->lock, flags);
 	dev->connected = 0;
+	dev->mirrorlink = 0;
+	dev->sw_mirrorlink = 0;
 	schedule_work(&dev->work);
 	spin_unlock_irqrestore(&cdev->lock, flags);
 }
