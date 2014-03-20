@@ -100,11 +100,21 @@ static inline unsigned ncm_bitrate(struct usb_gadget *g)
 /*
  * We cannot group frames so use just the minimal size which ok to put
  * one max-size ethernet frame.
- * If the host can group frames, allow it to do that, 16K is selected,
- * because it's used by default by the current linux host driver
  */
 #define NTB_DEFAULT_IN_SIZE	USB_CDC_NCM_NTB_MIN_IN_SIZE
-#define NTB_OUT_SIZE		16384
+
+/*
+ * Allow the host to group frames, but do not make the NTB out size a multiple
+ * of wMaxPacketSize. This is a workaround for USB drivers (e.g. dwc3) which
+ * only report a transfer as complete when they receive a short packet. We
+ * choose the NTB to be similar to the default in the current Linux host driver
+ * (which is 16K) subject to this constraint.
+ *
+ * We use a USB fixed buffer size just larger than the NTB out size, because it
+ * must be a multiple of wMaxPacketSize.
+ */
+#define NTB_OUT_SIZE		16368
+#define USB_OUT_BUFFER_SIZE	16384
 
 /*
  * skbs of size less than that will not be aligned
@@ -455,7 +465,7 @@ static inline void ncm_reset_values(struct f_ncm *ncm)
 	/* doesn't make sense for ncm, fixed size used */
 	ncm->port.header_len = 0;
 
-	ncm->port.fixed_out_len = le32_to_cpu(ntb_parameters.dwNtbOutMaxSize);
+	ncm->port.fixed_out_len = USB_OUT_BUFFER_SIZE;
 	ncm->port.fixed_in_len = NTB_DEFAULT_IN_SIZE;
 }
 
