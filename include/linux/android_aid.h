@@ -24,5 +24,6 @@
 #define AID_NET_ADMIN    3005
 #define AID_NET_BW_STATS 3006  /* read bandwidth statistics */
 #define AID_NET_BW_ACCT  3007  /* change bandwidth statistics accounting */
+#define AID_NET_BIND_SERVICE 3009 /* bind to ports under 1024 */
 
 #endif
