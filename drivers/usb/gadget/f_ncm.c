@@ -1372,7 +1372,6 @@ ncm_unbind(struct usb_configuration *c, struct usb_function *f)
 
 	DBG(c->cdev, "ncm unbind\n");
 
-	ncm_string_defs[0].id = 0;
 	usb_free_all_descriptors(f);
 
 	kfree(ncm->notify_req->buf);

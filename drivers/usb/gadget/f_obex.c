@@ -411,7 +411,6 @@ fail:
 static void
 obex_old_unbind(struct usb_configuration *c, struct usb_function *f)
 {
-	obex_string_defs[OBEX_CTRL_IDX].id = 0;
 	usb_free_all_descriptors(f);
 	kfree(func_to_obex(f));
 }

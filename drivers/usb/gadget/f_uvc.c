@@ -573,7 +573,6 @@ uvc_function_unbind(struct usb_configuration *c, struct usb_function *f)
 	uvc->control_ep->driver_data = NULL;
 	uvc->video.ep->driver_data = NULL;
 
-	uvc_en_us_strings[UVC_STRING_CONTROL_IDX].id = 0;
 	usb_ep_free_request(cdev->gadget->ep0, uvc->control_req);
 	kfree(uvc->control_buf);
 

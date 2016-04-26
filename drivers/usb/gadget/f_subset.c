@@ -363,7 +363,6 @@ fail:
 static void
 geth_unbind(struct usb_configuration *c, struct usb_function *f)
 {
-	geth_string_defs[0].id = 0;
 	usb_free_all_descriptors(f);
 	kfree(func_to_geth(f));
 }
